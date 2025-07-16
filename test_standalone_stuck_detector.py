@@ -1,4 +1,4 @@
-好# test_standalone_stuck_detector.py
+# test_standalone_stuck_detector.py
 # This script contains unit tests for the StandaloneStuckDetector.
 # Each test case is designed to verify one of the specific "stuck" patterns,
 # ensuring the core logic is preserved and understood.

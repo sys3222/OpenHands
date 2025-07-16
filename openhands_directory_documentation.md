@@ -49,7 +49,7 @@
     *   处理与用户的输入和输出交互。它管理着如何在终端显示信息、接收用户输入等。
 
 *   **`linter/` (代码规范检查器)**
-    *   包含了用于检查代码规范的工具。当智能体生成或修改代码时，这个模块可以用来确保代码风格统一，并发现潜在的错误。
+    *   包含了用于检查代码规范的工具。当智能��生成或修改代码时，这个模块可以用来确保代码风格统一，并发现潜在的错误。
 
 *   **`llm/` (大语言模型)**
     *   封装了与大语言模型（LLMs）交互的所有逻辑。它负责处理 API 请求、管理不同的模型提供商（如 OpenAI, Anthropic 等），并向上层提供统一的调用接口。
@@ -84,7 +84,7 @@
 ---
 ### **`openhands/controller/` 目录文件详解**
 
-这个目录是 OpenHands 系统的“中枢神经”，负责定义智能体（Agent）的行为、驱动其执行任务、管理其状态，并处理各种复杂情况，如任务重放、错误检测和状态管理。
+这个目录是 OpenHands 系统的“中枢神经”，负责定义智能体（Agent）的行为、驱动其执行任务、管理其状态，并处��各种复杂情况，如任务重放、错误检测和状态管理。
 
 ---
 
@@ -102,7 +102,7 @@
 
 #### **`agent_controller.py` - 智能体的“驾驶员”**
 
-*   **核心作用**: 这是整个项目的核心控制器，是驱动智能体一步步完成��务的引擎。它管理着主事件循环，并协调智能体、事件流和运行时环境之间的所有交互。
+*   **核心��用**: 这是整个项目的核心控制器，是驱动智能体一步步完成��务的引擎。它管理着主事件循环，并协调智能体、事件流和运行时环境之间的所有交互。
 *   **主要内容**:
     *   **`AgentController` (类)**:
         *   **主循环 (`_step`)**: 这是最核心的逻辑。它调用 `agent.step()` 来获取下一个 `Action`，然后将这个 `Action` 发送到事件流（`EventStream`）。
@@ -241,73 +241,41 @@ graph TD
 这个流程清晰地展示了从高级状态到具体行动意图的转换过程，是整个智能体决策能力的核心体现。
 
 ---
-### **StuckDetector: 逻辑保存与测试**
+### **附录A: 架构演进 - 引入 LangGraph**
 
-在考虑像LangGraph这样的新架构的迁移之前，捕获和验证现有系统中经过实战检验的宝贵业务逻辑是至关重要的。`StuckDetector`就是这种逻辑的典型例子。为了创建一个可验证的基准，我们将其核心功能提取到一个独立、可测试的脚本中。
+为了提升系统的模块化、可观测性和可维护性，我们进行了一项重大的架构升级，引入了`LangGraph`来替代原有的`AgentController`和`EventStream`机制。但为了保证系统的稳定性，我们采取了**双引擎并存、可配置切换**的策略。
 
-#### **第1步：分离核心逻辑 (`standalone_stuck_detector.py`)**
+#### **双引擎架构**
 
-我们创建了一个新的脚本`standalone_stuck_detector.py`。它包含:
-- 一个`StandaloneStuckDetector`类，忠实地实现了原始的检测逻辑。
-- 一套模拟（mock）类，用于`State`、`Action`和`Observation`，以消除对OpenHands主应用程序的任何依赖，使其完全自包含。
+现在，OpenHands拥有两套核心执行引擎：
+1.  **`controller` (默认引擎)**: 稳定、经过长期验证的旧引擎。
+2.  **`langgraph` (实验性引擎)**: 基于图和状态传递的新引擎，提供了更清晰的控制流。
 
-#### **第2步：创建全面的测试套件 (`test_standalone_stuck_detector.py`)**
+通过在核心配置文件中设置`engine`字段，用户可以选择启动时使用哪个引擎。
 
-我们编写了一个相应的测试脚本`test_standalone_stuck_detector.py`，使用Python的`unittest`框架。该套件包括专门的测试用例，旨在验证我们在分析中确定的每一个“宝藏”：
-- “精神错乱”的循环。
-- 持续失败的循环。
-- 智能体的独白循环。
-- 复杂的节奏（A-B-A-B）循环。
-- 上下文修剪的死亡螺旋。
-- `headless`和`interactive`模式之间的关键区别。
+#### **`openhands/graphs/` - 新引擎核心**
+我们创建了一个全新的目录`openhands/graphs/`，用于存放新引擎的所有代码，它与旧的`controller`和`events`目录完全隔离。其主要组件包括：
+- **`schemas.py`**: 使用Pydantic定义了所有新的、可序列化的`Action`和`Observation`数据结构。
+- **`nodes.py`**: 定义了图的各个功能节点，如`agent_think`（思考）、`execute_action`（执行）等。
+- **`edges.py`**: 定义了图的条件边，负责根据当前状态决定流程的走向。
+- **`builder.py`**: 将所有节点和边组装成一个可执行的`StatefulGraph`对象。
+- **`stuck_detector_logic.py`**: 移植并封装了旧引擎中宝贵的“防卡死”逻辑。
+- **`synchronous_runtime.py`**: 一个适配器，让新的图引擎能够调用旧的`LocalRuntime`。
 
-#### **第3步：验证命令**
+#### **服务器适配**
+为了支持新引擎，我们创建了一个新的API入口：
+- **`POST /v2/conversations`**: 这个端点专门用于创建和运行基于`LangGraph`的会话，它通过SSE（Server-Sent Events）将每一步的状态变化流式传输回客户端。
+- 旧的`POST /conversations`端点保持不变，继续使用`controller`引擎。
 
-这个完整的逻辑基准可以随时通过在��目根目录运行以下命令来验证：
-```bash
-python -m unittest test_standalone_stuck_detector.py
-```
-一次成功的运行将执行所有测试，并确认我们对`StuckDetector`逻辑的理解和实现是正确的。
+#### **兼容性修改**
+我们对旧代码的唯一修改是在`openhands/events/serialization/event.py`中，我们增强了`event_to_dict`函数，使其能够同时处理旧的`dataclasses`和新的`Pydantic`模型。这是一个向后兼容的增强，是实现双引擎共存的关键。
 
 ---
-### **附录：使用 LangGraph 进行架构重构的计划任务清单**
+### **附录B: 独立逻辑基准 - `StuckDetector`**
 
-这是一个分阶段的计划，旨在将OpenHands的核心控制器从当前的事件驱动模型迁移到基于LangGraph的图结构模型。
+在进行重构前，我们首先将`StuckDetector`的核心逻辑提取到了一个独立可验证的脚本中，以确保其宝贵的、经过实战检验的功能不会在迁移过程中丢失。
 
-#### **阶段 0: 准备与基准测试 (已完成)**
-*   [x] 分析现有的`AgentController`和`EventStream`的逻辑。
-*   [x] 将核心工作流分解为逻辑“节点”（如`agent_think`, `execute_action`等）。
-*   [x] 深入分析`StuckDetector`中包含的宝贵“经验”逻辑。
-*   [x] 创建一个独立的、可运行的`standalone_stuck_detector.py`脚本，并为其编写全面的单元测试`test_standalone_stuck_detector.py`，以建立一个可验证的逻辑基准。
+- **`standalone_stuck_detector.py`**: 包含了`StuckDetector`的纯净逻辑实现和模拟的数据类。
+- **`test_standalone_stuck_detector.py`**: 使用`unittest`为`StuckDetector`的每一种循环检测模式编写了专门的测试用例。
 
-#### **阶段 1: 核心图（Graph）的搭建**
-*   [ ] **定义图状态 (Graph State)**: 使用`TypedDict`创建一个新的、结构化的`State`对象，用于在LangGraph的节点之间传递。
-*   [ ] **创��基础节点**: 将我们识别出的核心逻辑（`agent_think`, `execute_action`）封装成独立的函数，这些函数将成为图的节点。
-*   [ ] **创建条件边 (Conditional Edge)**: 实现`decide_next_step`函数，该函数根据`agent_think`节点的输出（`Action`类型）决定下一个节点的路由。
-*   [ ] **组装基础图**: 将上述节点和边组装成一个`StatefulGraph`。
-*   [ ] **集成检查点 (Checkpointer)**: 为图添加一个`Checkpointer`（例如`MemorySaver`），以实现状态的持久化和恢复。
-
-#### **阶段 2: 移植宝贵的业务逻辑**
-*   [ ] **集成StuckDetector逻辑**:
-    *   将`standalone_stuck_detector.py`中的核心判断逻辑，整合到**阶段1**创建的`decide_next_step`条件边函数中。
-    *   在路由前，先调用卡死检测逻辑。如果检测到循环，则强制路由到一个新的`handle_stuck_error`节点。
-*   [ ] **重新设计Replay功能**:
-    *   利用LangGraph的检查点（Checkpointer）来恢复到某一步的状态。
-    *   设计一种新的“注入模式”，在该模式下，图会跳过`agent_think`节点，直接执行从历史轨迹中加载的`Action`。
-*   [ ] **重新设计代理委托 (Delegation)**:
-    *   将原有的`AgentDelegateAction`逻辑，改造为调用一个独立的**子图 (Sub-Graph)**。这是LangGraph的优势所在，可以使多智能体协作更清晰。
-
-#### **阶段 3: 系统级适配与重构**
-*   [ ] **改造`runtime`模块**: 将`runtime`从一个异步的事件监听器，改造成一个被`execute_action`节点直接调用的、同步的服务类。
-*   [ ] **改造`server`模块**:
-    *   更新API端点，使其不再与`AgentController`交互，而是调用`LangGraph.stream()`或`LangGraph.invoke()`。
-    *   修改WebSocket的推送逻辑，使其推送每一步完整的`State`快照，而不是零散的事件。
-*   [ ] **适配前端UI**: 修改前端代码，以正确地接收和渲染后端推送的`State`快照。
-*   [ ] **清理旧代码**:
-    *   安全地移除`openhands/events`和`openhands/controller`目录。
-    *   删除`standalone_stuck_detector.py`和其测试文件，因为它们的逻辑已经被并入新的图中，并由新的测试覆盖。
-
-#### **阶段 4: 评估与部署**
-*   [ ] **对比测试**: 在相同的评估任���集上，运行新旧两个版本的系统，确保新系统在性能、成功率和成本上不劣于（甚至优于）旧系统。
-*   [ ] **更新开发者文档**: 全面更新项目的架构文档，以反映新的基于LangGraph的设计。
-*   [ ] **制定部署计划**: 考虑如何将这一重大架构变更平稳地部署到生产环境中。
+这个逻辑基准可以通过运行`python -m unittest test_standalone_stuck_detector.py`来随时验证，为我们的重构工作提供了坚实的安全保障。
