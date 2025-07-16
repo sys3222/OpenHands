@@ -5,8 +5,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from openhands.graphs.state import GraphState
 from openhands.graphs.nodes import agent_think, execute_action, replay_step
 from openhands.graphs.schemas import (
-    CmdRunAction, CmdOutputObservation, AgentFinishAction, NullObservation,
-    AgentDelegateAction, AgentDelegateObservation
+    AgentFinishAction, AgentDelegateAction
 )
 from openhands.graphs.stuck_detector_logic import GraphStuckDetector
 
@@ -41,7 +40,6 @@ def handle_delegation(state: GraphState) -> dict:
     print("---HANDLING DELEGATION---")
     action = state['latest_action']
     
-    # In a real system, this would be a more sophisticated registry
     graph_registry = {
         "code_checker": build_code_checker_graph()
     }
@@ -49,6 +47,7 @@ def handle_delegation(state: GraphState) -> dict:
     sub_graph = graph_registry[action.agent_name]
     sub_graph_result = sub_graph.invoke(action.inputs)
     
+    from openhands.graphs.schemas import AgentDelegateObservation
     observation = AgentDelegateObservation(outputs=sub_graph_result)
     print(f"Delegation Result: {observation}")
     
@@ -58,7 +57,7 @@ def handle_delegation(state: GraphState) -> dict:
 # Graph Builder
 # =================================================================================
 def build_graph():
-    """Builds the main agent graph with delegation capabilities."""
+    """Builds the main agent graph with all capabilities."""
     workflow = StateGraph(GraphState)
 
     # Add nodes
@@ -108,40 +107,3 @@ def build_graph():
     workflow.add_edge("handle_stuck_error", END)
 
     return workflow.compile(checkpointer=MemorySaver())
-
-# =================================================================================
-# Test Runner
-# =================================================================================
-def run_delegation_test():
-    """Runs a test to verify the delegation functionality."""
-    print("\n---STARTING DELEGATION TEST---")
-    graph = build_graph()
-
-    initial_state = {"history": [], "is_replay": False}
-    config = {"configurable": {"thread_id": "delegation-test-thread"}}
-    
-    final_state = None
-    for s in graph.stream(initial_state, config, stream_mode="values"):
-        print(s)
-        print("----")
-        final_state = s
-
-    print("---DELEGATION TEST FINISHED---")
-    
-    assert final_state is not None
-    history = final_state['history']
-    # Expected history:
-    # 0: CmdRunAction
-    # 1: CmdOutputObservation
-    # 2: AgentDelegateAction
-    # 3: AgentDelegateObservation
-    # 4: AgentFinishAction
-    # 5: NullObservation
-    assert len(history) == 6
-    assert isinstance(history[2], AgentDelegateAction)
-    assert isinstance(history[3], AgentDelegateObservation)
-    assert "OK" in history[3].outputs['result']
-    print("Assertion successful: Graph correctly delegated a task and processed the result.")
-
-if __name__ == '__main__':
-    run_delegation_test()

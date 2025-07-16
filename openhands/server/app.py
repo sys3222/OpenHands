@@ -28,6 +28,7 @@ from openhands.server.routes.secrets import app as secrets_router
 from openhands.server.routes.security import app as security_api_router
 from openhands.server.routes.settings import app as settings_router
 from openhands.server.routes.trajectory import app as trajectory_router
+from openhands.server.routes.v2_conversation import v2_app
 from openhands.server.shared import conversation_manager
 
 mcp_app = mcp_server.http_app(path='/mcp')
@@ -59,7 +60,7 @@ app = FastAPI(
     routes=[Mount(path='/mcp', app=mcp_app)],
 )
 
-
+app.include_router(v2_app)
 app.include_router(public_api_router)
 app.include_router(files_api_router)
 app.include_router(security_api_router)
