@@ -7,38 +7,39 @@ from openhands.graphs.schemas import (
 )
 from openhands.graphs.synchronous_runtime import SyncRuntime
 
-# This is now a global instance for the graph to use.
-# In a more complex app, this would be managed and passed around.
 RUNTIME = SyncRuntime()
 
 def agent_think(state: GraphState) -> dict:
     """
-    Simulates the agent's thinking process. It can decide to continue, delegate, or finish.
+    A more realistic simulation of the agent's thinking process.
     """
     print("---AGENT THINKING---")
     
-    if len(state['history']) == 2:
-        action = AgentDelegateAction(
-            agent_name="code_checker",
-            inputs={"code": "print('hello world')"}
-        )
-    elif len(state['history']) > 4:
-        action = AgentFinishAction()
+    history = state.get("history", [])
+    
+    # Only finish if the last action was a command and it was successful
+    if history and isinstance(history[-1], CmdOutputObservation):
+        # A more robust check to avoid finishing on stuck loops
+        if len(history) > 8:
+             action = AgentFinishAction()
+        else:
+             action = CmdRunAction(command=f"echo 'Thinking after step {len(history)}'")
     else:
-        # Use a real command that will work
-        action = CmdRunAction(command="echo 'Hello from the runtime!'")
+        action = CmdRunAction(command=f"echo 'Step {len(history)}'")
     
     print(f"Action: {action}")
     return {"latest_action": action}
 
 def execute_action(state: GraphState) -> dict:
     """
-    Executes the action using the real runtime and adds the [action, observation] pair to history.
+    Executes the action and adds the [action, observation] pair to history.
     """
     print("---EXECUTING ACTION---")
     action = state['latest_action']
     
-    # Use the synchronous runtime to execute the action
+    if isinstance(action, AgentFinishAction):
+        return {"history": [action]}
+
     observation = RUNTIME.execute(action)
     
     print(f"Observation: {observation}")

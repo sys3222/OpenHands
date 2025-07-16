@@ -143,6 +143,7 @@ flake8 = "*"
 optional = true
 
 [tool.poetry.group.evaluation.dependencies]
+vllm = { version = "^0.9.2", python = ">=3.12,<3.13" }
 streamlit = "*"
 whatthepatch = "*"
 retry = "*"
